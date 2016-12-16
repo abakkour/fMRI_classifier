@@ -1,15 +1,11 @@
 #!/usr/bin/env python
 
 import mvpa2, sklearn, numpy, os, nibabel, sys
-from mvpa2 import *
-from mvpa2.datasets.sources import *
-from mvpa2.datasets.eventrelated import *
-from mvpa2.base.dataset import *
-from mvpa2.mappers.detrend import *
-from mvpa2.mappers.zscore import *
+from mvpa2.suite import *
 
 #where the data live
-data_path="/data/akram/MDMRT_scan/"
+#data_path="/data/akram/MDMRT_scan/"
+data_path="/Volumes/hypatia/akram/MDMRT_scan/"
 
 #Can use this handy openfmri dataset tool to define your dataset
 dhandle = OpenFMRIDataset(data_path)
@@ -78,7 +74,22 @@ t2fds = detrended_t2fds
 t1fds = t1fds[t1fds.sa.targets != 'rest']
 t2fds = t2fds[t2fds.sa.targets != 'rest']
 
+#specify classifier
+clf = LinearCSVMC()
+
+#set up three-fold cross validation
+cvte = CrossValidation(clf, NFoldPartitioner(), errorfx=lambda p, t: np.mean(p == t),enable_ca=['stats'])
+
+#run cross validation on task1+2 whole-brain data
+t1cv_results = cvte(t1fds)
+t2cv_results = cvte(t2fds)
+
+## PROJECT THE FS HIPPO MASKS INTO EXAMPLE_FUNC SPACE AND TRY TO CLASSIFY FROM JUST HIPPOCAMPUS?
+
+
 ###############
+#Below here is just sandbox
+##############
 for ev in events:
         onset = ev['onset'] + onset_shift
         # first sample ending after stimulus onset
