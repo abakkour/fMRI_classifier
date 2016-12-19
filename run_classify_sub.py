@@ -7,114 +7,54 @@ from mvpa2.suite import *
 #data_path="/data/akram/MDMRT_scan/"
 data_path="/Volumes/hypatia/akram/MDMRT_scan/"
 
-#Can use this handy openfmri dataset tool to define your dataset
-dhandle = OpenFMRIDataset(data_path)
+#wb_mask_fname="/usr/share/fsl/5.0/data/standard/MNI152_T1_2mm_brain_mask.nii.gz"
+wb_mask_fname="/usr/local/fsl/data/standard/MNI152_T1_2mm_brain_mask.nii.gz"
 
-#You can check all participants in this way
-#dhandle.get_subj_ids()
+sub = "sub002"
 
-#You can check the task descriptions from condition_key.txt
-#dhandle.get_task_descriptions()
+#Paths for the nifti images    
+beta_t1_fname = os.path.join(data_path,sub, 'model/model100/task001_LSS_std.nii.gz')
+beta_t2_fname = os.path.join(data_path,sub, 'model/model100/task002_LSS_std.nii.gz')
+mask_fname = os.path.join(data_path,'rois', sub+'_hippo.nii.gz')
 
-#You can check all experiment design and model setup info
-model = 10
-subj = 2
+#Paths to the attibute files
+attr1 = SampleAttributes(os.path.join(data_path,sub,'model/model100/task001_attr.txt'))
+attr2 = SampleAttributes(os.path.join(data_path,sub,'model/model100/task002_attr.txt'))
 
-task=1
-run_datasets = []
+#load datasets
+ds1 = fmri_dataset(samples=beta_t1_fname, targets=attr1.targets, chunks=attr1.chunks, mask = mask_fname)
+ds2 = fmri_dataset(samples=beta_t2_fname, targets=attr2.targets, chunks=attr2.chunks, mask = mask_fname)
 
-for run_id in dhandle.get_task_bold_run_ids(task)[subj]:
-    mask_fname = os.path.join(data_path,'sub'+'{:03d}'.format(subj), 'BOLD', 'task00'+str(task)+'_run001', 'bold_mcf_brain_mask.nii.gz')
-    # load design info for this run
-    run_events = dhandle.get_bold_run_model(model, subj, run_id)
-    #you end up with both task1 and task2 eventns, so subset out just the task 1 event
-    run_events=[item for item in run_events if item["task"] == task]
-    # load BOLD data for this run (with masking); add 0-based chunk ID
-    run_ds = dhandle.get_bold_run_dataset(subj, task, run_id,chunks=run_id -1,mask=mask_fname)
-    # convert event info into a sample attribute and assign as 'targets'
-    if run_events[len(run_events)-1]['onset']>max(run_ds.sa.time_coords):
-        run_events[len(run_events)-1]['onset']=max(run_ds.sa.time_coords)-.00001
-    run_ds.sa['targets'] = events2sample_attr(run_events, run_ds.sa.time_coords, noinfolabel='rest')
-    run_datasets.append(run_ds)
+#zscore datasets
+zscore(ds1,chunks_attr='chunks',dtype='float32')
+zscore(ds2,chunks_attr='chunks',dtype='float32')
 
-t1fds = vstack(run_datasets, a=0)
-
-task=2
-run_datasets = []
-
-for run_id in dhandle.get_task_bold_run_ids(task)[subj]:
-    mask_fname = os.path.join(data_path,'sub002', 'BOLD', 'task00'+str(task)+'_run001', 'bold_mcf_brain_mask.nii.gz')
-    # load design info for this run
-    run_events = dhandle.get_bold_run_model(model, subj, run_id)
-    #you end up with both task1 and task2 eventns, so subset out just the task 1 events
-    run_events=[item for item in run_events if item['task'] == task]
-    # load BOLD data for this run (with masking); add 0-based chunk ID
-    run_ds = dhandle.get_bold_run_dataset(subj, task, run_id,chunks=run_id -1,mask=mask_fname)
-    if run_events[len(run_events)-1]['onset']>max(run_ds.sa.time_coords):
-        run_events[len(run_events)-1]['onset']=max(run_ds.sa.time_coords)-.00001
-    # convert event info into a sample attribute and assign as 'targets'
-    run_ds.sa['targets'] = events2sample_attr(run_events, run_ds.sa.time_coords, noinfolabel='rest')
-    run_datasets.append(run_ds)
-
-t2fds = vstack(run_datasets, a=0)
-
-#detrender
-detrender = PolyDetrendMapper(polyord=1, chunks_attr='chunks')
-detrended_t1fds = t1fds.get_mapped(detrender)
-detrender = PolyDetrendMapper(polyord=1, chunks_attr='chunks')
-detrended_t2fds = t2fds.get_mapped(detrender)
-
-#zscore
-zscore(detrended_t1fds, param_est=('targets', ['rest']))
-zscore(detrended_t2fds, param_est=('targets', ['rest']))
-t1fds = detrended_t1fds
-t2fds = detrended_t2fds
-
-#remove rest periods
-t1fds = t1fds[t1fds.sa.targets != 'rest']
-t2fds = t2fds[t2fds.sa.targets != 'rest']
 
 #specify classifier
 clf = LinearCSVMC()
 
 #set up three-fold cross validation
-cvte = CrossValidation(clf, NFoldPartitioner(), errorfx=lambda p, t: np.mean(p == t),enable_ca=['stats'])
+cvte1 = CrossValidation(clf, NFoldPartitioner(), errorfx=lambda p, t: np.mean(p == t),enable_ca=['stats'])
+cvte2 = CrossValidation(clf, NFoldPartitioner(), errorfx=lambda p, t: np.mean(p == t),enable_ca=['stats'])
 
 #run cross validation on task1+2 whole-brain data
-t1cv_results = cvte(t1fds)
-t2cv_results = cvte(t2fds)
-
-## PROJECT THE FS HIPPO MASKS INTO EXAMPLE_FUNC SPACE AND TRY TO CLASSIFY FROM JUST HIPPOCAMPUS?
+t1cv_results = cvte1(ds1)
+t2cv_results = cvte2(ds2)
 
 
-###############
-#Below here is just sandbox
-##############
-for ev in events:
-        onset = ev['onset'] + onset_shift
-        # first sample ending after stimulus onset
-        onset_samp_idx = np.argwhere(time_coords[1:] > onset)[0,0]
-        # deselect all volume starting before the end of the stimulation
-        duration_mask = time_coords < (onset + ev['duration'])
-        duration_mask[:onset_samp_idx] = False
+##searchlight
 
-run = 1
-events = dhandle.get_bold_run_model(model, subj, run)
+#load datasets
+ds1 = fmri_dataset(samples=beta_t1_fname, targets=attr1.targets, chunks=attr1.chunks, mask = wb_mask_fname)
+ds2 = fmri_dataset(samples=beta_t2_fname, targets=attr2.targets, chunks=attr2.chunks, mask = wb_mask_fname)
 
-#you end up with both task1 and task2 eventns, so subset out just the task 1 events
-t1events=[item for item in events if item["task"] == 1]
+#zscore datasets
+zscore(ds1,chunks_attr='chunks',dtype='float32')
+zscore(ds2,chunks_attr='chunks',dtype='float32')
 
-#You can check your events (there should be 70 trials)
-for ev in t1events[:70]:
-    print ev
+cvte = CrossValidation(clf, NFoldPartitioner(), errorfx=lambda p, t: np.mean(p == t),enable_ca=['stats'])
 
-#Paths for the nifti images    
-bold_fname = os.path.join(data_path,'sub002', 'BOLD', 'task001_run001', 'bold_mcf_brain.nii.gz')
-mask_fname = os.path.join(data_path,'sub002', 'BOLD', 'task001_run001', 'bold_mcf_brain_mask.nii.gz')
-
-#load bold data
-fds = fmri_dataset(samples=bold_fname,mask=mask_fname)
-
-targets = events2sample_attr(t1events, fds.sa.time_coords,noinfolabel='rest', onset_shift=0.0)
-
-fds = fmri_dataset(samples=bold_fname,mask=mask_fname,chunks=1,targets=targets)
+sl = sphere_searchlight(cvte, radius=6, postproc=mean_sample())
+t1_sl_results = sl(ds1)
+t1_niftiresults = map2nifti(t1_sl_results, imghdr=ds1.a.imghdr)
+niftiresults.to_filename(os.path.join(data_path,sub,'model/model100/searchlight_results_2mm_task001_3class.nii.gz'))
