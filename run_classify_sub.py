@@ -31,7 +31,6 @@ ds2 = fmri_dataset(samples=beta_t2_fname, targets=attr2.targets, chunks=attr2.ch
 zscore(ds1,chunks_attr='chunks',dtype='float32')
 zscore(ds2,chunks_attr='chunks',dtype='float32')
 
-
 #specify classifier
 clf = LinearCSVMC()
 #clf=sklearn.svm.SVC(kernel='linear',probability=True)
@@ -64,8 +63,9 @@ cvte = CrossValidation(clf, NFoldPartitioner(), errorfx=lambda p, t: np.mean(p =
 sl = sphere_searchlight(cvte, radius=6, postproc=mean_sample())
 t1_sl_results = sl(ds1)
 t1_niftiresults = map2nifti(t1_sl_results, imghdr=ds1.a.imghdr)
-niftiresults.to_filename(os.path.join(data_path,sub,'model/model100/searchlight_results_2mm_task001_3class.nii.gz'))
+t1_niftiresults.to_filename(os.path.join(data_path,sub,'model/model100/searchlight_results_2mm_task001_3class.nii.gz'))
 
 t2_sl_results = sl(ds2)
 t2_niftiresults = map2nifti(t2_sl_results, imghdr=ds2.a.imghdr)
-niftiresults.to_filename(os.path.join(data_path,sub,'model/model100/searchlight_results_2mm_task002_3class.nii.gz'))
+t2_niftiresults.to_filename(os.path.join(data_path,sub,'model/model100/searchlight_results_2mm_task002_3class.nii.gz'))
+
